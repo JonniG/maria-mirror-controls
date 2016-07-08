@@ -2,11 +2,18 @@
 #include <PubSubClient.h>
 #include <Bounce2.h>
 #include <EEPROM.h>
+#include <ESP8266mDNS.h>
+#include <WiFiUdp.h>
+#include <ArduinoOTA.h>
 
 // Wifi + Server Configuration
 const char* ssid = "*****";
 const char* password = "*****";
 const char* mqtt_server = "*****";
+
+//OTA Config
+const char* deviceName = "ESP8266-Mirror-Controls";
+const char* OTAPass = "update";
 
 //Variables and pinouts
 WiFiClient espClient;
@@ -43,8 +50,6 @@ void setup_wifi() {
   WiFi.begin(ssid, password);
 
   while (WiFi.status() != WL_CONNECTED) {
-    //physButton1();
-    //physButton2();
     delay(500);
     Serial.print(".");
   }
@@ -174,6 +179,11 @@ void setup() {
   EEPROM.begin(512);              // Begin eeprom to store on/off state
   Serial.begin(115200);
 
+  //OTA setup
+  WiFi.mode(WIFI_STA);
+  ArduinoOTA.setPassword(OTAPass);
+  ArduinoOTA.setHostname(deviceName);
+
   //Define modes for pins
   pinMode(button1, INPUT);
   pinMode(button2, INPUT);
@@ -199,6 +209,31 @@ void setup() {
   setup_wifi();                   // Connect to wifi 
   client.setServer(mqtt_server, 1883);
   client.setCallback(callback);
+
+  while (WiFi.waitForConnectResult() != WL_CONNECTED) {
+    Serial.println("Connection Failed! Rebooting...");
+    delay(5000);
+    ESP.restart();
+  }
+
+  ArduinoOTA.onStart([]() {
+    Serial.println("Start");
+  });
+  ArduinoOTA.onEnd([]() {
+    Serial.println("\nEnd");
+  });
+  ArduinoOTA.onProgress([](unsigned int progress, unsigned int total) {
+    Serial.printf("Progress: %u%%\r", (progress / (total / 100)));
+  });
+  ArduinoOTA.onError([](ota_error_t error) {
+    Serial.printf("Error[%u]: ", error);
+    if (error == OTA_AUTH_ERROR) Serial.println("Auth Failed");
+    else if (error == OTA_BEGIN_ERROR) Serial.println("Begin Failed");
+    else if (error == OTA_CONNECT_ERROR) Serial.println("Connect Failed");
+    else if (error == OTA_RECEIVE_ERROR) Serial.println("Receive Failed");
+    else if (error == OTA_END_ERROR) Serial.println("End Failed");
+  });
+  ArduinoOTA.begin();
 }
 
 //Loop this without delays. pressing a button lasts 500ms
@@ -208,6 +243,7 @@ void loop() {
     reconnect();
   }
   client.loop();
+  ArduinoOTA.handle();
   
   physButton1();
   physButton2();
